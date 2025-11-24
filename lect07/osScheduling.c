@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <signal.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <string.h>
@@ -23,12 +24,12 @@ typedef enum {
 
 const char *state_name(state_t s) {
     switch (s) {
-        case NEW: return "NEW";
-        case READY: return "READY";
-        case RUNNING: return "RUN";
-        case WAITING: return "WAIT";
+        case NEW:        return "NEW";
+        case READY:      return "READY";
+        case RUNNING:    return "RUN";
+        case WAITING:    return "WAIT";
         case TERMINATED: return "DONE";
-        default: return "UNK";
+        default:         return "UNK";
     }
 }
 
@@ -85,22 +86,23 @@ int q_pop(Queue *q) {
  */
 void child_work(int id) {
     // 생성되자마자 STOP 해서 부모 스케줄러가 깨울 때까지 대기
-    raise(SIGSTOP);
+    signal(SIGCONT, SIG_DFL);       // SIGCONT는 기본 동작(continue)
+    kill(getpid(), SIGSTOP);        // 부모가 스케줄 시작할 때까지 STOP
 
     while (1) {
-        // 부모가 SIGCONT 를 보내면 여기로 돌아오고
-        // 한 타임 퀀텀 동안 실행한다고 가정
+        // 부모가 SIGCONT 를 보내면 여기부터 다시 실행된다고 가정
         printf("  [Child %2d, pid=%5d] running...\n", id, getpid());
         fflush(stdout);
-        sleep(TIME_QUANTUM);
-        // 이후 SIGSTOP 을 받을 때까지 다시 대기
+
+        sleep(1);                   // 타임 퀀텀 1초 동안 "일" 함
+        // 이후 SIGSTOP 을 받을 때까지 다시 대기 (커널 레벨에서)
     }
 }
 
 // --------------------- 시뮬레이션 함수 ---------------------
 
 double run_simulation(double io_prob, int *out_total_time, double *out_avg_wait) {
-    PCB pcb[N_PROC];
+    PCB   pcb[N_PROC];
     Queue ready_q;
     Queue io_q;
     q_init(&ready_q);
@@ -150,6 +152,8 @@ double run_simulation(double io_prob, int *out_total_time, double *out_avg_wait)
     // 2. 라운드 로빈 스케줄링 루프
     while (finished < N_PROC) {
         int running_idx = -1;
+
+        // 2-0. ready 큐에서 다음 프로세스 선택
         if (!q_empty(&ready_q)) {
             running_idx = q_pop(&ready_q);
             PCB *p = &pcb[running_idx];
@@ -180,8 +184,8 @@ double run_simulation(double io_prob, int *out_total_time, double *out_avg_wait)
                 p->completion_time = current_time;
                 p->turnaround_time = p->completion_time; // 도착시간 0
 
-                kill(p->pid, SIGTERM);   // 자식 종료
-                waitpid(p->pid, NULL, 0); // 좀비 방지
+                kill(p->pid, SIGTERM);            // 자식 종료
+                waitpid(p->pid, NULL, WNOHANG);   // 좀비 방지 (블록 X)
                 finished++;
 
                 snprintf(event_desc, sizeof(event_desc),
@@ -190,6 +194,7 @@ double run_simulation(double io_prob, int *out_total_time, double *out_avg_wait)
                 // I/O 요청 발생
                 p->state        = WAITING;
                 p->io_time_left = (rand() % MAX_IO_BURST) + 1; // 1~MAX_IO_BURST
+                if (p->io_time_left <= 0) p->io_time_left = 1; // 안전장치
                 q_push(&io_q, running_idx);
                 snprintf(event_desc, sizeof(event_desc),
                          "P%d -> I/O (%d)", p->id, p->io_time_left);
@@ -274,6 +279,21 @@ double run_simulation(double io_prob, int *out_total_time, double *out_avg_wait)
                    io_str[0]    ? io_str    : "-",
                    event_desc);
         }
+
+        // 2-6. DEADLOCK 검사: ready와 io 큐가 모두 비었는데 끝난 게 아니면 비정상
+        if (q_empty(&ready_q) && q_empty(&io_q)) {
+            int all_done = 1;
+            for (int i = 0; i < N_PROC; i++) {
+                if (pcb[i].state != TERMINATED) {
+                    all_done = 0;
+                    break;
+                }
+            }
+            if (all_done) break;
+
+            printf("DEADLOCK DETECTED -- forcing termination\n");
+            break;
+        }
     }
 
     printf("-----------------------------------------------------------------------------------------\n");
@@ -308,7 +328,7 @@ int main(void) {
 
     // 여기 배열만 바꾸면 실험할 I/O 비율을 쉽게 변경 가능
     double io_probs[] = {0.0, 0.3, 0.6};
-    int n_sim = sizeof(io_probs) / sizeof(io_probs[0]);
+    int    n_sim      = sizeof(io_probs) / sizeof(io_probs[0]);
 
     printf("HW03: OS Scheduling Simulation (Round Robin with signals)\n");
     printf("Number of processes: %d, time quantum: %d sec, CPU burst: 1-%d\n",
