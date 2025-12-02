@@ -29,13 +29,13 @@ int main(int argc, char *argv[]) {
     // 4. 뮤텍스 초기화 (사용 전 필수)
     pthread_mutex_init(&mtx, NULL);
 
-    /* 스레드 생성 부분 (기존 코드와 동일) */
+    /* 스레드 생성 부분 (일꾼 4명 고용) */
     for (i=0; i<4; ++i) {
         args[i] = i;
         pthread_create(&threads[i], NULL, TaskCode, (void *) &args[i]);
     }
 
-    /* 스레드 종료 대기 부분 (기존 코드와 동일) */
+    /* 스레드 종료 대기 부분 (퇴근 기다리기 - join) */
     for (i=0; i<4; ++i) {
         pthread_join(threads[i], NULL);
     }
