@@ -35,7 +35,7 @@ int main(int argc, char *argv[]) {
         pthread_create(&threads[i], NULL, TaskCode, (void *) &args[i]);
     }
 
-    /* 스레드 종료 대기 부분 (퇴근 기다리기 - join) */
+    /* 스레드 종료 대기 부분 (퇴근 기다리기 - join, 기다렸다가 다시 main stream으로 돌아와서 합쳐짐) */
     for (i=0; i<4; ++i) {
         pthread_join(threads[i], NULL);
     }
