@@ -45,7 +45,7 @@ typedef struct {
     int   completion_time; // 완료 시각
 } PCB;
 
-// 간단한 원형 큐 (프로세스 인덱스 저장)
+// 원형 큐 (프로세스 인덱스 저장)
 typedef struct {
     int data[N_PROC];
     int head;
@@ -62,7 +62,7 @@ int q_empty(Queue *q) {
 }
 
 void q_push(Queue *q, int v) {
-    if (q->size >= N_PROC) return;   // 간단히 오버플로우 무시
+    if (q->size >= N_PROC) return;   // 오버플로우 무시
     q->data[q->tail] = v;
     q->tail = (q->tail + 1) % N_PROC;
     q->size++;
@@ -80,7 +80,7 @@ int q_pop(Queue *q) {
 
 /*
  * 자식 프로세스는 실제 CPU burst를 알지 못하고,
- * 부모가 SIGCONT를 보내면 1초 동안 "일"을 한다고 가정하여
+ * 부모가 SIGCONT를 보내면 1초 동안 한다고 가정하여
  * 메시지를 출력하고 sleep(1)만 한다.
  * 스케줄링 / burst 감소 / I/O 여부 결정은 모두 부모에서 시뮬레이션.
  */
@@ -95,7 +95,7 @@ void child_work(int id) {
         fflush(stdout);
 
         sleep(1);                   // 타임 퀀텀 1초 동안 "일" 함
-        // 이후 SIGSTOP 을 받을 때까지 다시 대기 (커널 레벨에서)
+        // 이후 SIGSTOP 을 받을 때까지 다시 대기
     }
 }
 
@@ -108,7 +108,7 @@ double run_simulation(double io_prob, int *out_total_time, double *out_avg_wait)
     q_init(&ready_q);
     q_init(&io_q);
 
-    // 1. 자식 프로세스 생성 + PCB 초기화
+    // 1. 자식 프로세스 생성 및 PCB 초기화
     for (int i = 0; i < N_PROC; i++) {
         pid_t pid = fork();
         if (pid < 0) {
@@ -144,7 +144,7 @@ double run_simulation(double io_prob, int *out_total_time, double *out_avg_wait)
     }
     printf("\n\n");
 
-    // 로그를 테이블 형태로 출력
+    // 테이블 형태로 로그 출력
     printf("-----------------------------------------------------------------------------------------\n");
     printf(" time |  PID  | prc | state | rem | wait | io_left | readyQ | ioQ | event\n");
     printf("-----------------------------------------------------------------------------------------\n");
@@ -172,14 +172,14 @@ double run_simulation(double io_prob, int *out_total_time, double *out_avg_wait)
         if (running_idx != -1) {
             PCB *p = &pcb[running_idx];
 
-            // 타임퀀텀 끝났으므로 STOP 시킨다.
+            // 타임퀀텀 끝났으므로 STOP
             kill(p->pid, SIGSTOP);
             p->remaining_burst--;
 
             // I/O 수행 여부 결정
             double r = (double)rand() / RAND_MAX;
             if (p->remaining_burst <= 0) {
-                // CPU burst 소진 → 종료
+                // CPU burst 소진하면 종료
                 p->state           = TERMINATED;
                 p->completion_time = current_time;
                 p->turnaround_time = p->completion_time; // 도착시간 0
@@ -199,7 +199,7 @@ double run_simulation(double io_prob, int *out_total_time, double *out_avg_wait)
                 snprintf(event_desc, sizeof(event_desc),
                          "P%d -> I/O (%d)", p->id, p->io_time_left);
             } else {
-                // 그냥 다시 ready 큐로 복귀
+                // 다시 ready 큐로 복귀
                 p->state = READY;
                 q_push(&ready_q, running_idx);
                 snprintf(event_desc, sizeof(event_desc),
@@ -256,7 +256,7 @@ double run_simulation(double io_prob, int *out_total_time, double *out_avg_wait)
             }
         }
 
-        // 2-5. PCB “실시간” 테이블 한 줄 출력
+        // 2-5. PCB 실시간 테이블 한 줄 출력
         if (running_idx != -1) {
             PCB *p = &pcb[running_idx];
             printf(" %4d | %5d | P%-2d | %-5s | %3d | %4d | %7d | %-6s | %-3s | %s\n",
@@ -326,7 +326,7 @@ double run_simulation(double io_prob, int *out_total_time, double *out_avg_wait)
 int main(void) {
     srand((unsigned int)time(NULL));
 
-    // 여기 배열만 바꾸면 실험할 I/O 비율을 쉽게 변경 가능
+    // 이 배열로 실험할 I/O 비율 설정
     double io_probs[] = {0.0, 0.3, 0.6};
     int    n_sim      = sizeof(io_probs) / sizeof(io_probs[0]);
 
@@ -343,7 +343,7 @@ int main(void) {
 
         avg_waits[i] = run_simulation(io_probs[i], &total_time, &avg_wait);
 
-        // 혹시 남은 자식이 있으면 정리 (안전용)
+        // 남은 자식이 있으면 정리
         while (waitpid(-1, NULL, WNOHANG) > 0) {
             ;
         }
